@@ -4,3 +4,4 @@ pandas>=2.2
 matplotlib>=3.8
 rectpack>=0.2.2
 highspy>=1.11.0     # HiGHS solver (has wheels for Python 3.13)
+plotly>=5.20.0
