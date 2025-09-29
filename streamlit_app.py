@@ -12,16 +12,16 @@ st.title("🚛 3D Truck Packing Optimiser")
 # Vehicle Types
 # =========================
 vehicle_types = [
-    ("Small van",        1.5,  1.2,   1.1,   360,   1.8,    100),
-    ("Medium wheel base",3.0,  1.2,   1.9,  1400,   3.6,    130),
-    ("Sprinter van",     4.2,  1.2,   1.75,  950,   5.04,   135),
-    ("luton van",        4.0,  2.0,   2.0,  1000,   8.0,    160),
-    ("7.5T CS",          6.0,  2.88,  2.2,  2600,  17.28,   150),
-    ("18T CS",           7.3,  2.88,  2.3,  9800,  21.024,  175),
-    ("40ft CS",         13.5,  3.0,   3.0, 28000,  40.5,    185),
-    ("20ft FB",          7.3,  2.4,   3.0, 10500,  17.52,   180),
-    ("40ft FB",         13.5,  2.4,   3.0, 30000,  32.4,    190),
-    ("40T Low Loader",  13.5,  2.4,   3.0, 30000,  32.4,    195),
+    ("Small van", 1.5, 1.2, 1.1, 360, 1.8, 100),
+    ("Medium wheel base",3.0, 1.2, 1.9, 1400, 3.6, 130),
+    ("Sprinter van", 4.2, 1.2, 1.75, 950, 5.04, 135),
+    ("luton van", 4.0, 2.0, 2.0, 1000, 8.0, 160),
+    ("7.5T CS", 6.0, 2.88, 2.2, 2600, 17.28, 150),
+    ("18T CS", 7.3, 2.88, 2.3, 9800, 21.024, 175),
+    ("40ft CS", 13.5, 3.0, 3.0, 28000, 40.5, 185),
+    ("20ft FB", 7.3, 2.4, 3.0, 10500, 17.52, 180),
+    ("40ft FB", 13.5, 2.4, 3.0, 30000, 32.4, 190),
+    ("40T Low Loader", 13.5, 2.4, 3.0, 30000, 32.4, 195),
 ]
 
 # =========================
@@ -29,7 +29,6 @@ vehicle_types = [
 # =========================
 st.header("📦 Inventory Inputs")
 weights, lengths, widths, heights = [], [], [], []
-
 num_individual = st.number_input("Number of Individual Inventory", min_value=0, max_value=200, value=0)
 cols = st.columns(5)
 for i in range(num_individual):
@@ -42,12 +41,11 @@ for i in range(num_individual):
     with cols[3]:
         heights.append(st.number_input(f"Height {i+1} (m)", key=f"hei_{i}", value=1.0))
     with cols[4]:
-        st.markdown("&nbsp;")
+        st.markdown(" ")
 
 st.markdown("---")
 st.subheader("Bulk Inventory Entries")
 bulk_entries = st.number_input("Number of Bulk Inventory Types", min_value=0, max_value=20, value=0)
-
 for i in range(bulk_entries):
     st.markdown(f"**Bulk Parcel Type {i+1}**")
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -61,7 +59,6 @@ for i in range(bulk_entries):
         width = st.number_input("Width (m)", value=1.0, key=f"b_wid_{i}")
     with c5:
         height = st.number_input("Height (m)", value=1.0, key=f"b_hei_{i}")
-
     for _ in range(quantity):
         weights.append(weight)
         lengths.append(length)
@@ -69,7 +66,7 @@ for i in range(bulk_entries):
         heights.append(height)
 
 # =========================
-# 3D Packing Algorithm Toggle
+# Packing Algorithm Toggle
 # =========================
 st.sidebar.header("Packing Algorithm")
 algo_choice = st.sidebar.selectbox("Select 3D Packing Algorithm", [
@@ -121,7 +118,6 @@ for i, parcel in enumerate(parcel_data):
             feasible.append(name)
     if feasible:
         parcel_feasible_vehicles[i] = feasible
-
 valid_parcels = list(parcel_feasible_vehicles.keys())
 
 # =========================
@@ -132,24 +128,18 @@ def run_milp_3d(parcel_indices):
     IJ = [(i, j) for i in parcel_indices for j in parcel_feasible_vehicles[i]]
     x = pulp.LpVariable.dicts("Assign", IJ, cat="Binary")
     y = pulp.LpVariable.dicts("UseVehicle", vehicles.keys(), cat="Binary")
-
     model += pulp.lpSum(vehicles[j]["cost"] * y[j] for j in vehicles)
-
     for i in parcel_indices:
         model += pulp.lpSum(x[i, j] for j in parcel_feasible_vehicles[i]) == 1
-
     for (i, j) in IJ:
         model += x[i, j] <= y[j]
-
     for j in vehicles:
         feas_i = [i for i in parcel_indices if (i, j) in x]
         if feas_i:
             model += pulp.lpSum(parcel_data[i]["weight"] * x[i, j] for i in feas_i) <= vehicles[j]["max_weight"] * y[j]
             model += pulp.lpSum(parcel_data[i]["volume"] * x[i, j] for i in feas_i) <= vehicles[j]["max_volume"] * y[j]
-
     solver = pulp.PULP_CBC_CMD(msg=False)
     model.solve(solver)
-
     assignment = {}
     for (i, j) in IJ:
         if pulp.value(x[i, j]) == 1:
@@ -187,9 +177,8 @@ def generate_mock_3d_layout(parcel_indices, truck_name):
     return layout
 
 # =========================
-# 3D Visualisation
+# 3D Visualisation (Fixed)
 # =========================
-
 def visualize_3d_layout(layout, truck_name):
     truck = vehicles[truck_name]
     fig = go.Figure()
@@ -198,12 +187,10 @@ def visualize_3d_layout(layout, truck_name):
         x0, y0, z0 = parcel["x"], parcel["y"], parcel["z"]
         dx, dy, dz = parcel["length"], parcel["width"], parcel["height"]
 
-        # Define the 8 corners of the box
         x = [x0, x0+dx, x0+dx, x0, x0, x0+dx, x0+dx, x0]
         y = [y0, y0, y0+dy, y0+dy, y0, y0, y0+dy, y0+dy]
         z = [z0, z0, z0, z0, z0+dz, z0+dz, z0+dz, z0+dz]
 
-        # Define the faces of the box using vertex indices
         i = [0, 0, 0, 1, 2, 4, 5, 6, 7, 3, 1, 2]
         j = [1, 2, 4, 5, 6, 5, 6, 7, 3, 0, 5, 6]
         k = [2, 4, 5, 6, 7, 6, 7, 3, 0, 1, 6, 7]
@@ -231,4 +218,18 @@ def visualize_3d_layout(layout, truck_name):
     )
     st.plotly_chart(fig)
 
+# =========================
+# Run Optimisation
+# =========================
+if st.button("Run 3D Packing Optimisation"):
+    if not valid_parcels:
+        st.error("No valid parcels to optimise.")
+    else:
+        assignment = run_milp_3d(valid_parcels)
+        grouped = {}
+        for i, truck in assignment.items():
+            grouped.setdefault(truck, []).append(i)
+        for truck, indices in grouped.items():
+            layout = generate_mock_3d_layout(indices, truck)
+            st.subheader(f"Truck: {truck} ({len(indices)} parcels)")
             visualize_3d_layout(layout, truck)
