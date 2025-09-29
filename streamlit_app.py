@@ -189,22 +189,34 @@ def generate_mock_3d_layout(parcel_indices, truck_name):
 # =========================
 # 3D Visualisation
 # =========================
+
 def visualize_3d_layout(layout, truck_name):
     truck = vehicles[truck_name]
     fig = go.Figure()
+
     for parcel in layout:
+        x0, y0, z0 = parcel["x"], parcel["y"], parcel["z"]
+        dx, dy, dz = parcel["length"], parcel["width"], parcel["height"]
+
+        # Define the 8 corners of the box
+        x = [x0, x0+dx, x0+dx, x0, x0, x0+dx, x0+dx, x0]
+        y = [y0, y0, y0+dy, y0+dy, y0, y0, y0+dy, y0+dy]
+        z = [z0, z0, z0, z0, z0+dz, z0+dz, z0+dz, z0+dz]
+
+        # Define the faces of the box using vertex indices
+        i = [0, 0, 0, 1, 2, 4, 5, 6, 7, 3, 1, 2]
+        j = [1, 2, 4, 5, 6, 5, 6, 7, 3, 0, 5, 6]
+        k = [2, 4, 5, 6, 7, 6, 7, 3, 0, 1, 6, 7]
+
         fig.add_trace(go.Mesh3d(
-            x=[parcel["x"], parcel["x"] + parcel["length"], parcel["x"] + parcel["length"], parcel["x"],
-               parcel["x"], parcel["x"] + parcel["length"], parcel["x"] + parcel["length"], parcel["x"]],
-            y=[parcel["y"], parcel["y"], parcel["y"] + parcel["width"], parcel["y"] + parcel["width"],
-               parcel["y"], parcel["y"], parcel["y"] + parcel["width"], parcel["y"] + parcel["width"]],
-            z=[parcel["z"], parcel["z"], parcel["z"], parcel["z"],
-               parcel["z"] + parcel["height"], parcel["z"] + parcel["height"], parcel["z"] + parcel["height"], parcel["z"] + parcel["height"]],
+            x=x, y=y, z=z,
+            i=i, j=j, k=k,
             color='lightblue',
             opacity=0.5,
             name=f"Parcel {parcel['id']}",
             showscale=False
         ))
+
     fig.update_layout(
         title=f"3D Packing Layout for {truck_name}",
         scene=dict(
@@ -219,20 +231,4 @@ def visualize_3d_layout(layout, truck_name):
     )
     st.plotly_chart(fig)
 
-# =========================
-# Run Optimisation
-# =========================
-if st.button("Run 3D Packing Optimisation"):
-    if not valid_parcels:
-        st.error("No valid parcels to optimise.")
-    else:
-        assignment = run_milp_3d(valid_parcels)
-        grouped = {}
-        for i, truck in assignment.items():
-            grouped.setdefault(truck, []).append(i)
-
-        for truck, indices in grouped.items():
-            layout = generate_mock_3d_layout(indices, truck)
-            st.subheader(f"Truck: {truck} ({len(indices)} parcels)")
             visualize_3d_layout(layout, truck)
-
