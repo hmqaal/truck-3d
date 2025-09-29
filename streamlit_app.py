@@ -1,8 +1,41 @@
 import streamlit as st
+import pulp
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+from collections import Counter
 import plotly.graph_objects as go
 
 # =========================
-# Streamlit config
+# Globals / constants
+# =========================
+BIG_M = 10000
+EPSILON = 0.001
+MIP_TIME_LIMIT_SEC = 45
+NO_PROGRESS_MAX = 3
+CLONES_PER_TYPE = 5
+PER_TYPE_CLONES = {}
+debug_log = []
+
+def dbg(msg: str):
+    print(msg)
+    debug_log.append(msg)
+
+# =========================
+# Optional dependency: rectpack (MaxRects)
+# =========================
+try:
+    from rectpack import newPacker
+    from rectpack.maxrects import MaxRectsBssf, MaxRectsBaf
+    from rectpack.packer import SORT_AREA
+    HAS_RECTPACK = True
+except Exception:
+    HAS_RECTPACK = False
+    MaxRectsBssf = MaxRectsBaf = None
+    SORT_AREA = None
+
+# =========================
+# Streamlit config & sidebar
 # =========================
 st.set_page_config(page_title="Truck Optimiser", layout="wide")
 st.markdown(
@@ -15,20 +48,29 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+show_debug = st.sidebar.checkbox("Show debug panel", value=False)
+
+pack_options = ["MaxRects (BSSF)", "MaxRects (BAF)", "Shelf (Greedy)"]
+default_idx = (0 if HAS_RECTPACK else 2)
+PACK_MODE = st.sidebar.selectbox("Packing algorithm", pack_options, index=default_idx)
+
+if ("MaxRects" in PACK_MODE) and (not HAS_RECTPACK):
+    st.sidebar.warning("rectpack not installed — falling back to Shelf (Greedy). Add `rectpack` to requirements.txt.")
+
 # =========================
 # Vehicle TYPES
 # =========================
 vehicle_types = [
-    ("Small van",        1.5,  1.2,   1.1),
-    ("Medium wheel base",3.0,  1.2,   1.9),
-    ("Sprinter van",     4.2,  1.2,   1.75),
-    ("luton van",        4.0,  2.0,   2.0),
-    ("7.5T CS",          6.0,  2.88,  2.2),
-    ("18T CS",           7.3,  2.88,  2.3),
-    ("40ft CS",         13.5,  3.0,   3.0),
-    ("20ft FB",          7.3,  2.4,   3.0),
-    ("40ft FB",         13.5,  2.4,   3.0),
-    ("40T Low Loader",  13.5,  2.4,   3.0),
+    ("Small van",        1.5,  1.2,   1.1,   360,   1.8,    100),
+    ("Medium wheel base",3.0,  1.2,   1.9,  1400,   3.6,    130),
+    ("Sprinter van",     4.2,  1.2,   1.75,  950,   5.04,   135),
+    ("luton van",        4.0,  2.0,   2.0,  1000,   8.0,    160),
+    ("7.5T CS",          6.0,  2.88,  2.2,  2600,  17.28,   150),
+    ("18T CS",           7.3,  2.88,  2.3,  9800,  21.024,  175),
+    ("40ft CS",         13.5,  3.0,   3.0, 28000,  40.5,    185),
+    ("20ft FB",          7.3,  2.4,   300, 10500,  17.52,   180),
+    ("40ft FB",         13.5,  2.4,   300, 30000,  32.4,    190),
+    ("40T Low Loader",  13.5,  2.4,   300, 30000,  32.4,    195),
 ]
 
 # =========================
@@ -38,7 +80,7 @@ st.header("Inventory Inputs")
 weights, lengths, widths, heights = [], [], [], []
 
 num_individual = st.number_input("Number of Individual Inventory", min_value=0, max_value=200, value=0)
-cols = st.columns(4)
+cols = st.columns(5)
 for i in range(num_individual):
     with cols[0]:
         weights.append(st.number_input(f"Weight {i+1} (kg)", key=f"wt_{i}", value=100.0))
@@ -47,7 +89,9 @@ for i in range(num_individual):
     with cols[2]:
         widths.append(st.number_input(f"Width {i+1} (m)", key=f"wid_{i}", value=1.0))
     with cols[3]:
-        heights.append(st.number_input(f"Height {i+1} (m)", key=f"hei_{i}", value=1.0))
+        heights.append(st.number_input(f"Height (m)", key=f"hei_{i}", value=1.0))
+    with cols[4]:
+        st.markdown("&nbsp;")
 
 st.markdown("---")
 st.subheader("Bulk Inventory Entries")
@@ -73,9 +117,14 @@ for i in range(bulk_entries):
         widths.append(width)
         heights.append(height)
 
+areas = [lengths[i] * widths[i] for i in range(len(weights))]
+total_weight = sum(weights)
+total_area = sum(areas)
+
 # =========================
-# 3D Packing Algorithms
+# 🚛 3D Truck Packing Optimiser
 # =========================
+
 def extreme_point_packing(parcel_data, truck_dims):
     return generate_mock_3d_layout(parcel_data, truck_dims)
 
@@ -145,9 +194,8 @@ def visualize_3d_layout(layout, truck_dims, method_name):
     )
     st.plotly_chart(fig)
 
-# =========================
-# Sidebar Controls
-# =========================
+st.markdown("## 🚛 3D Truck Packing Optimiser")
+
 packing_algorithms_3d = {
     "Extreme Point Heuristic": extreme_point_packing,
     "Layer-Based Packing": layer_based_packing,
@@ -155,14 +203,8 @@ packing_algorithms_3d = {
     "Guillotine 3D": guillotine_3d_packing
 }
 
-st.sidebar.header("Packing Controls")
-selected_algo = st.sidebar.selectbox("Select 3D Packing Algorithm", list(packing_algorithms_3d.keys()))
-selected_truck = st.sidebar.selectbox("Select Truck Type", [v[0] for v in vehicle_types])
-
-# =========================
-# Run Packing
-# =========================
-st.markdown("## 🚛 3D Truck Packing Optimiser")
+selected_algo = st.selectbox("Select 3D Packing Algorithm", list(packing_algorithms_3d.keys()))
+selected_truck = st.selectbox("Select Truck Type", [v[0] for v in vehicle_types])
 
 if st.button("Run 3D Packing"):
     truck_spec = next(v for v in vehicle_types if v[0] == selected_truck)
